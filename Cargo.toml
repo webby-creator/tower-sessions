@@ -42,8 +42,8 @@ private = ["tower-cookies/private"]
 [workspace.dependencies]
 tower-sessions = { version = "=0.12.2", path = ".", default-features = false }
 
-tower-sessions-core = { version = "=0.12.2", path = "tower-sessions-core", default-features = false }
-tower-sessions-memory-store = { version = "=0.12.2", path = "memory-store" }
+tower-sessions-core = "=0.12.2"
+tower-sessions-memory-store = "=0.12.2"
 
 async-trait = "0.1.74"
 parking_lot = { version = "0.12.1", features = ["serde"] }

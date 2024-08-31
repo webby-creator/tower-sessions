@@ -7,7 +7,7 @@ use std::{
     task::{Context, Poll},
 };
 
-use http::{Request, Response};
+use http::{HeaderMap, HeaderValue, Request, Response};
 use time::OffsetDateTime;
 #[cfg(any(feature = "signed", feature = "private"))]
 use tower_cookies::Key;
@@ -181,7 +181,7 @@ where
         let span = tracing::info_span!("call");
 
         let session_store = self.session_store.clone();
-        let session_config = self.session_config.clone();
+        let mut session_config = self.session_config.clone();
         let cookie_controller = self.cookie_controller.clone();
 
         // Because the inner service can panic until ready, we need to ensure we only
@@ -217,6 +217,41 @@ where
                 let session = Session::new(session_id, session_store, session_config.expiry);
 
                 req.extensions_mut().insert(session.clone());
+
+                let path = req.uri().path().to_string();
+                let Some(host) = get_header_host(req.headers()) else {
+                    tracing::error!("Missing HOST Header");
+                    return Ok(Response::default());
+                };
+
+                // TODO: Move into own crate
+                if let Some(domain) = session_config.domain.as_deref() {
+                    // Main Domain?
+                    if host.contains(domain) {
+                        let mut subdomain = host.replace(domain, "");
+
+                        if subdomain.ends_with(".") {
+                            subdomain.truncate(subdomain.len() - 1);
+                        }
+
+                        if subdomain.trim().to_lowercase() != "api" && path != "/" {
+                            let path = if let Some((l, _)) = path[1..].split_once("/") {
+                                format!("/{}", l.to_string())
+                            } else {
+                                path
+                            };
+
+                            // We're viewing a locally published site, set cookie `host` and `path` to store sessions to
+                            session_config.domain = Some(Cow::Owned(host));
+                            session_config.path = Cow::Owned(path);
+                        }
+                    }
+                    // External domain?
+                    else {
+                        // Use host to store sessions to
+                        session_config.domain = Some(Cow::Owned(host));
+                    }
+                }
 
                 let res = inner.call(req).await?;
 
@@ -275,6 +310,12 @@ where
             .instrument(span),
         )
     }
+}
+
+fn get_header_host(map: &HeaderMap<HeaderValue>) -> Option<String> {
+    let header = map.get("host")?;
+
+    header.to_str().ok().map(|s| s.to_owned())
 }
 
 /// A layer for providing [`Session`] as a request extension.
